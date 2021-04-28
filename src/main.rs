@@ -172,7 +172,7 @@ impl Engine {
         best_score
     }
 
-    fn best_move(&mut self, depth: u8, board: Board) -> Option<ChessMove> {
+    fn negamax_root(&mut self, depth: u8, board: Board) -> Option<ChessMove> {
         if depth == 0 || game_over(board) {
             return None;
         }
@@ -190,6 +190,17 @@ impl Engine {
                 alpha = score;
                 best_move = Some(m);
             }
+        }
+
+        best_move
+    }
+
+    fn best_move(&mut self, max_depth: u8, board: Board) -> Option<ChessMove> {
+        let mut best_move = None;
+
+        // Iterative Deepening
+        for depth in 1..max_depth {
+            best_move = self.negamax_root(depth, board);
         }
 
         best_move
