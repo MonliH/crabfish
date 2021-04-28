@@ -1,4 +1,6 @@
-use chess::{Board, BoardStatus, CacheTable, Color, MoveGen, Piece};
+use chess::{Board, BoardStatus, CacheTable, ChessMove, Color, MoveGen, Piece};
+
+use std::io::BufRead;
 use std::{io, str::FromStr};
 
 type ScoreTy = i16;
@@ -12,13 +14,13 @@ const PAWN_WT: ScoreTy = 1;
 #[inline(always)]
 fn delta(board: Board, piece: Piece) -> ScoreTy {
     let ps = board.pieces(piece);
-    ((ps & board.color_combined(Color::White)).0.count_ones()
-        - (ps & board.color_combined(Color::Black)).0.count_ones()) as i16
+    ((ps & board.color_combined(Color::White)).0.count_ones() as ScoreTy)
+        - ((ps & board.color_combined(Color::Black)).0.count_ones() as ScoreTy)
 }
 
 #[inline(always)]
 fn evaluate(board: Board) -> ScoreTy {
-    match board.status() {
+    (match board.status() {
         BoardStatus::Ongoing => {
             let queen_s = QUEEN_WT * delta(board, Piece::Queen);
             let rook_s = ROOK_WT * delta(board, Piece::Rook);
@@ -27,9 +29,9 @@ fn evaluate(board: Board) -> ScoreTy {
             let pawn_s = PAWN_WT * delta(board, Piece::Pawn);
             queen_s + rook_s + bishop_s + knight_s + pawn_s
         }
-        BoardStatus::Checkmate => 1000,
+        BoardStatus::Checkmate => 1000 * -color_to_num(board.side_to_move()),
         BoardStatus::Stalemate => 0,
-    }
+    }) * color_to_num(board.side_to_move())
 }
 
 #[inline(always)]
@@ -48,103 +50,161 @@ fn color_to_num(color: Color) -> ScoreTy {
     }
 }
 
+#[derive(PartialEq, PartialOrd, Clone, Copy, Debug)]
+enum Flag {
+    Exact,
+    LowerBound,
+    UpperBound,
+}
+
+impl Default for Flag {
+    fn default() -> Self {
+        Flag::LowerBound
+    }
+}
+
+#[derive(PartialEq, PartialOrd, Clone, Copy, Debug, Default)]
+struct CacheItem {
+    depth: u8,
+    flag: Flag,
+    value: ScoreTy,
+}
+
 pub struct Engine {
-    memo: CacheTable<ScoreTy>,
+    memo: CacheTable<CacheItem>,
 }
 
 impl Engine {
     fn new(size: usize) -> Self {
         Self {
-            memo: CacheTable::new(size, 0),
+            memo: CacheTable::new(size, CacheItem::default()),
         }
     }
 
+    fn quiesce(&mut self, board: Board, mut alpha: ScoreTy, beta: ScoreTy) -> ScoreTy {
+        let standing_pat = evaluate(board);
+        if standing_pat >= beta {
+            return beta;
+        }
+        if alpha < standing_pat {
+            alpha = standing_pat
+        }
+
+        let mut possible_moves = MoveGen::new_legal(&board);
+        let targets = board.color_combined(!board.side_to_move());
+        // Filter down to attacking moves
+        possible_moves.set_iterator_mask(*targets);
+
+        for m in possible_moves {
+            let new_board = board.make_move_new(m);
+            let score = -self.quiesce(new_board, -beta, -alpha);
+            if score >= beta {
+                return beta;
+            }
+            if score > alpha {
+                alpha = score;
+            }
+        }
+
+        alpha
+    }
+
     #[inline]
-    fn maxi(&mut self, depth: u8, board: Board, mut a: ScoreTy, b: ScoreTy) -> ScoreTy {
+    fn negamax(
+        &mut self,
+        depth: u8,
+        board: Board,
+        mut alpha: ScoreTy,
+        mut beta: ScoreTy,
+    ) -> ScoreTy {
+        let orig_alpha = alpha;
+
+        if let Some(entry) = self.memo.get(board.get_hash()) {
+            if entry.depth >= depth {
+                match entry.flag {
+                    Flag::Exact => return entry.value,
+                    Flag::LowerBound => alpha = ScoreTy::max(alpha, entry.value),
+                    Flag::UpperBound => beta = ScoreTy::max(beta, entry.value),
+                }
+
+                if alpha >= beta {
+                    return entry.value;
+                }
+            }
+        }
+
         if depth == 0 || game_over(board) {
-            return evaluate(board);
+            return self.quiesce(board, alpha, beta);
         }
 
         let possible_moves = MoveGen::new_legal(&board);
 
+        let mut best_score = ScoreTy::MIN + 1;
         for m in possible_moves {
             let new_board = board.make_move_new(m);
-            let score = self.mini(depth - 1, new_board, a, b);
-            if score >= b {
-                return b;
-            }
-            if score > a {
-                a = score;
-            }
-        }
-
-        return a;
-    }
-
-    #[inline]
-    fn mini(&mut self, depth: u8, board: Board, a: ScoreTy, mut b: ScoreTy) -> ScoreTy {
-        if depth == 0 || game_over(board) {
-            return evaluate(board);
-        }
-
-        let possible_moves = MoveGen::new_legal(&board);
-
-        for m in possible_moves {
-            let new_board = board.make_move_new(m);
-            let score = self.maxi(depth - 1, new_board, a, b);
-            if score <= a {
-                return a;
-            }
-            if score < b {
-                b = score;
+            best_score = ScoreTy::max(
+                best_score,
+                -self.negamax(depth - 1, new_board, -beta, -alpha),
+            );
+            alpha = ScoreTy::max(alpha, best_score);
+            if alpha >= beta {
+                break;
             }
         }
 
-        return b;
-    }
-
-    #[inline]
-    fn negamax(&mut self, depth: u8, board: Board, mut a: ScoreTy, b: ScoreTy) -> ScoreTy {
-        if depth == 0 || game_over(board) {
-            return evaluate(board) * (-color_to_num(board.side_to_move()));
-        }
-
-        let possible_moves = MoveGen::new_legal(&board);
-
-        for m in possible_moves {
-            let new_board = board.make_move_new(m);
-            let score = -self.negamax(depth - 1, new_board, -b, -a);
-            if score >= b {
-                return b;
-            }
-            if score > a {
-                a = score;
-            }
-        }
-
-        return a;
-    }
-
-    fn analyze(&mut self, board: Board, depth: u8) -> ScoreTy {
-        if board.side_to_move() == Color::White {
-            self.maxi(depth, board, ScoreTy::MIN, ScoreTy::MAX)
+        let entry_flag = if best_score <= orig_alpha {
+            Flag::UpperBound
+        } else if best_score >= beta {
+            Flag::LowerBound
         } else {
-            self.maxi(depth, board, ScoreTy::MIN, ScoreTy::MAX)
+            Flag::Exact
+        };
+
+        self.memo.add(
+            board.get_hash(),
+            CacheItem {
+                depth,
+                flag: entry_flag,
+                value: best_score,
+            },
+        );
+
+        best_score
+    }
+
+    fn best_move(&mut self, depth: u8, board: Board) -> Option<ChessMove> {
+        if depth == 0 || game_over(board) {
+            return None;
         }
+
+        let mut alpha = ScoreTy::MIN + 1;
+        let beta = ScoreTy::MAX;
+
+        let possible_moves = MoveGen::new_legal(&board);
+
+        let mut best_move = None;
+        for m in possible_moves {
+            let new_board = board.make_move_new(m);
+            let score = -self.negamax(depth - 1, new_board, -beta, -alpha);
+            if score > alpha {
+                alpha = score;
+                best_move = Some(m);
+            }
+        }
+
+        best_move
     }
 }
 
 fn main() {
-    let mut fen = String::new();
-    let stdin = io::stdin();
-    stdin
-        .read_line(&mut fen)
+    let fen = io::stdin()
+        .lock()
+        .lines()
+        .next()
+        .unwrap()
         .expect("Failed to read from stdin");
     let board = Board::from_str(&fen).expect("Invalid FEN position");
-    let mut engine = Engine::new(2048);
+    let mut engine = Engine::new(32768);
 
-    println!(
-        "Score: {}",
-        engine.negamax(3, board, ScoreTy::MIN, ScoreTy::MAX)
-    );
+    println!("Best move: {}", engine.best_move(5, board).unwrap());
 }
