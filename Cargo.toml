@@ -1,0 +1,8 @@
+[package]
+name = "autofish"
+version = "0.1.0"
+authors = ["Jonathan Li <30177086+MonliH@users.noreply.github.com>"]
+edition = "2018"
+
+[dependencies]
+chess = "3"
