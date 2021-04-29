@@ -6,3 +6,6 @@ edition = "2018"
 
 [dependencies]
 chess = "3"
+
+[profile.release]
+lto = "fat"
