@@ -25,6 +25,6 @@ fn main() {
         if game_over(board) {
             break;
         }
-        println!("Best move: {}", engine.best_move(6, board).unwrap());
+        println!("Best move: {}", engine.best_move(7, board).unwrap());
     }
 }
