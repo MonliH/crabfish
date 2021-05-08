@@ -30,7 +30,7 @@ fn main() {
     match opts.subcmd {
         flags::SubCommand::Uci => todo!(),
         flags::SubCommand::Move(conf) => {
-            let mut engine = search::Engine::new(conf.memo.unwrap_or(32768));
+            let mut engine = search::Engine::new(conf.memo.unwrap_or(33554432));
 
             if conf.interactive {
                 loop {
