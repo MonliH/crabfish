@@ -1,15 +1,21 @@
 use chess::{Board, CacheTable, ChessMove, MoveGen};
+use smallvec::{smallvec, SmallVec};
 
 use crate::{
-    eval::evaluate,
+    eval::{evaluate, is_endgame},
     helpers::{game_over, N_INF, P_INF},
     move_sort::{sort_moves, sort_qs},
     score::ScoreTy,
     transposition::{CacheItem, Flag},
 };
 
+const R: u8 = 2;
+const DEPTH: usize = 12;
+pub const KILLER_MOVES: usize = 3;
+
 pub struct Engine {
     memo: CacheTable<CacheItem>,
+    killer_moves: SmallVec<[[Option<ChessMove>; KILLER_MOVES]; DEPTH]>,
     nodes_searched: usize,
 }
 
@@ -18,6 +24,7 @@ impl Engine {
         Self {
             memo: CacheTable::new(size, CacheItem::default()),
             nodes_searched: 0,
+            killer_moves: smallvec![[None; KILLER_MOVES]; DEPTH],
         }
     }
 
@@ -63,13 +70,16 @@ impl Engine {
     #[allow(deprecated)]
     fn pvs(
         &mut self,
+        start_depth: u8,
         depth: u8,
         board: Board,
         mut alpha: ScoreTy,
         mut beta: ScoreTy,
         pv: Option<ChessMove>,
+        can_null: bool,
     ) -> ScoreTy {
         let orig_alpha = alpha;
+        let ply = (start_depth - depth) as usize;
 
         if let Some(entry) = self.memo.get(board.get_hash()) {
             if entry.depth >= depth {
@@ -92,6 +102,30 @@ impl Engine {
         }
 
         let not_checked = board.checkers().0 == 0;
+        let not_endgame = !is_endgame(board);
+
+        // Null Move Pruning
+        if not_checked
+            && can_null
+            && depth > R
+            && (ScoreTy::abs(beta - 1) > N_INF + 100)
+            && not_endgame
+        {
+            let adapt_r = if depth > 6 { R + 1 } else { R };
+            let nulled = board.null_move().unwrap();
+            let score = -self.pvs(
+                start_depth,
+                depth - 1 - adapt_r,
+                nulled,
+                -beta,
+                -beta + 1,
+                None,
+                false,
+            );
+            if score >= beta {
+                return score;
+            }
+        }
 
         // Reverse Futility Pruning
         if depth < 3 && not_checked && (ScoreTy::abs(beta - 1) > N_INF + 100) {
@@ -105,26 +139,43 @@ impl Engine {
 
         let mut possible_moves = [ChessMove::default(); 256];
         let count = board.enumerate_moves(&mut possible_moves);
-        sort_moves(&board, &mut possible_moves[..count]);
+        let killer_moves = self
+            .killer_moves
+            .get(ply as usize)
+            .unwrap_or(&[None; KILLER_MOVES]);
+        sort_moves(&board, &mut possible_moves[..count], killer_moves);
+        let mut is_pv = true;
 
         for i in 0..count {
             let m = possible_moves[i];
             let new_board = board.make_move_new(m);
-            let best_score = if Some(m) == pv {
-                -self.pvs(depth - 1, new_board, -beta, -alpha, None)
-            } else if i == 0 {
-                -self.pvs(depth - 1, new_board, -beta, -alpha, None)
+            let best_score = if Some(m) == pv && is_pv {
+                is_pv = false;
+                -self.pvs(start_depth, depth - 1, new_board, -beta, -alpha, None, true)
             } else {
                 // Null Window Search
-                let s = -self.pvs(depth - 1, new_board, -alpha - 1, -alpha, None);
+                let s = -self.pvs(
+                    start_depth,
+                    depth - 1,
+                    new_board,
+                    -alpha - 1,
+                    -alpha,
+                    None,
+                    true,
+                );
                 if alpha < s && s < beta {
-                    -self.pvs(depth - 1, new_board, -beta, -s, None)
+                    -self.pvs(start_depth, depth - 1, new_board, -beta, -s, None, true)
                 } else {
                     s
                 }
             };
             alpha = ScoreTy::max(alpha, best_score);
             if alpha >= beta {
+                while self.killer_moves.len() <= ply {
+                    self.killer_moves.push([None; KILLER_MOVES]);
+                }
+                self.killer_moves[ply].rotate_right(1);
+                self.killer_moves[ply][0] = Some(m);
                 break;
             }
         }
@@ -149,7 +200,13 @@ impl Engine {
         alpha
     }
 
-    fn pvs_root(&mut self, depth: u8, board: Board, pv: Option<ChessMove>) -> Option<ChessMove> {
+    fn pvs_root(
+        &mut self,
+        depth: u8,
+        board: Board,
+        pv: Option<ChessMove>,
+    ) -> Option<(ChessMove, ScoreTy)> {
+        let start_depth = depth;
         if depth == 0 || game_over(board) {
             return None;
         }
@@ -162,28 +219,29 @@ impl Engine {
         let mut best_move = None;
         for m in possible_moves {
             let new_board = board.make_move_new(m);
-            let score = -self.pvs(depth - 1, new_board, -beta, -alpha, pv);
+            let score = -self.pvs(start_depth, depth - 1, new_board, -beta, -alpha, pv, true);
             if score > alpha {
                 alpha = score;
-                best_move = Some(m);
+                best_move = Some((m, alpha));
             }
         }
 
         best_move
     }
 
-    pub fn best_move(&mut self, max_depth: u8, board: Board) -> Option<ChessMove> {
-        let mut best_move = None;
+    pub fn best_move(&mut self, max_depth: u8, board: Board) -> Option<(ChessMove, ScoreTy)> {
+        let mut best_move: Option<(ChessMove, ScoreTy)> = None;
 
         // Iterative Deepening
         for depth in 1..(max_depth + 1) {
-            best_move = self.pvs_root(depth, board, best_move);
-            eprintln!(
-                "Nodes Searched: {}; Depth {}: Best move: {}",
-                self.nodes_searched,
-                depth,
-                best_move.unwrap_or(ChessMove::default())
-            );
+            let pvs_res = self.pvs_root(depth, board, best_move.map(|(a, _)| a));
+            if let Some((new_bm, new_analysis)) = pvs_res {
+                best_move = pvs_res;
+                eprintln!(
+                    "Nodes Searched: {}; Depth {}; Best move: {}; Analysis: {};",
+                    self.nodes_searched, depth, new_bm, new_analysis
+                );
+            }
             self.nodes_searched = 0;
         }
 
