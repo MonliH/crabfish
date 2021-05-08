@@ -1,4 +1,4 @@
-use chess::{Board, CacheTable, ChessMove, MoveGen};
+use chess::{Board, ChessMove, MoveGen};
 use smallvec::{smallvec, SmallVec};
 
 use crate::{
@@ -6,25 +6,28 @@ use crate::{
     helpers::{game_over, N_INF, P_INF},
     move_sort::{sort_moves, sort_qs},
     score::ScoreTy,
-    transposition::{CacheItem, Flag},
+    transposition::{CacheItem, Flag, TTable},
 };
 
 const R: u8 = 2;
 const DEPTH: usize = 12;
 pub const KILLER_MOVES: usize = 3;
 
+#[derive(Clone)]
 pub struct Engine {
-    memo: CacheTable<CacheItem>,
     killer_moves: SmallVec<[[Option<ChessMove>; KILLER_MOVES]; DEPTH]>,
-    nodes_searched: usize,
+    memo: TTable,
+    pub nodes_searched: usize,
+    pub search_id: usize,
 }
 
 impl Engine {
-    pub fn new(size: usize) -> Self {
+    pub fn new(search_id: usize, memo: TTable) -> Self {
         Self {
-            memo: CacheTable::new(size, CacheItem::default()),
             nodes_searched: 0,
+            memo,
             killer_moves: smallvec![[None; KILLER_MOVES]; DEPTH],
+            search_id,
         }
     }
 
@@ -77,20 +80,25 @@ impl Engine {
         mut beta: ScoreTy,
         pv: Option<ChessMove>,
         can_null: bool,
-    ) -> ScoreTy {
+        time_up: &dyn Fn() -> bool,
+    ) -> Option<ScoreTy> {
+        if time_up() {
+            return None;
+        }
+
         let orig_alpha = alpha;
         let ply = (start_depth - depth) as usize;
 
         if let Some(entry) = self.memo.get(board.get_hash()) {
             if entry.depth >= depth {
                 match entry.flag {
-                    Flag::Exact => return entry.value,
+                    Flag::Exact => return Some(entry.value),
                     Flag::LowerBound => alpha = ScoreTy::max(alpha, entry.value),
                     Flag::UpperBound => beta = ScoreTy::max(beta, entry.value),
                 }
 
                 if alpha >= beta {
-                    return entry.value;
+                    return Some(entry.value);
                 }
             }
         }
@@ -98,7 +106,7 @@ impl Engine {
         self.nodes_searched += 1;
 
         if depth == 0 || game_over(board) {
-            return self.quiesce(board, alpha, beta);
+            return Some(self.quiesce(board, alpha, beta));
         }
 
         let not_checked = board.checkers().0 == 0;
@@ -121,9 +129,10 @@ impl Engine {
                 -beta + 1,
                 None,
                 false,
-            );
+                time_up,
+            )?;
             if score >= beta {
-                return score;
+                return Some(score);
             }
         }
 
@@ -133,7 +142,7 @@ impl Engine {
 
             let eval_margin = 120 * depth as ScoreTy;
             if (static_eval - eval_margin) >= beta {
-                return static_eval - eval_margin;
+                return Some(static_eval - eval_margin);
             }
         }
 
@@ -151,7 +160,16 @@ impl Engine {
             let new_board = board.make_move_new(m);
             let best_score = if Some(m) == pv && is_pv {
                 is_pv = false;
-                -self.pvs(start_depth, depth - 1, new_board, -beta, -alpha, None, true)
+                -self.pvs(
+                    start_depth,
+                    depth - 1,
+                    new_board,
+                    -beta,
+                    -alpha,
+                    None,
+                    true,
+                    time_up,
+                )?
             } else {
                 // Null Window Search
                 let s = -self.pvs(
@@ -162,9 +180,19 @@ impl Engine {
                     -alpha,
                     None,
                     true,
-                );
+                    time_up,
+                )?;
                 if alpha < s && s < beta {
-                    -self.pvs(start_depth, depth - 1, new_board, -beta, -s, None, true)
+                    -self.pvs(
+                        start_depth,
+                        depth - 1,
+                        new_board,
+                        -beta,
+                        -s,
+                        None,
+                        true,
+                        time_up,
+                    )?
                 } else {
                     s
                 }
@@ -188,23 +216,18 @@ impl Engine {
             Flag::Exact
         };
 
-        self.memo.add(
-            board.get_hash(),
-            CacheItem {
-                depth,
-                flag: entry_flag,
-                value: alpha,
-            },
-        );
+        self.memo
+            .set(CacheItem::new(depth, entry_flag, alpha, board.get_hash()));
 
-        alpha
+        Some(alpha)
     }
 
-    fn pvs_root(
+    pub fn pvs_root(
         &mut self,
         depth: u8,
         board: Board,
         pv: Option<ChessMove>,
+        time_up: &dyn Fn() -> bool,
     ) -> Option<(ChessMove, ScoreTy)> {
         let start_depth = depth;
         if depth == 0 || game_over(board) {
@@ -219,30 +242,24 @@ impl Engine {
         let mut best_move = None;
         for m in possible_moves {
             let new_board = board.make_move_new(m);
-            let score = -self.pvs(start_depth, depth - 1, new_board, -beta, -alpha, pv, true);
+            let score = if let Some(score) = self.pvs(
+                start_depth,
+                depth - 1,
+                new_board,
+                -beta,
+                -alpha,
+                pv,
+                true,
+                time_up,
+            ) {
+                -score
+            } else {
+                return None;
+            };
             if score > alpha {
                 alpha = score;
                 best_move = Some((m, alpha));
             }
-        }
-
-        best_move
-    }
-
-    pub fn best_move(&mut self, max_depth: u8, board: Board) -> Option<(ChessMove, ScoreTy)> {
-        let mut best_move: Option<(ChessMove, ScoreTy)> = None;
-
-        // Iterative Deepening
-        for depth in 1..(max_depth + 1) {
-            let pvs_res = self.pvs_root(depth, board, best_move.map(|(a, _)| a));
-            if let Some((new_bm, new_analysis)) = pvs_res {
-                best_move = pvs_res;
-                eprintln!(
-                    "Nodes Searched: {}; Depth {}; Best move: {}; Analysis: {};",
-                    self.nodes_searched, depth, new_bm, new_analysis
-                );
-            }
-            self.nodes_searched = 0;
         }
 
         best_move
