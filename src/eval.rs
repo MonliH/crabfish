@@ -71,6 +71,7 @@ fn mobility(board: Board, color: Color) -> ScoreTy {
     return (new_board
         .map(|b| b.enumerate_moves(&mut [ChessMove::default(); 256]))
         .unwrap_or(20) as ScoreTy)
+        / 3
         * MOBILITY_WT;
 }
 
