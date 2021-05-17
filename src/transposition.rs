@@ -93,6 +93,7 @@ impl TTable {
         if possible_entry.board_hash == hash && possible_entry.checksum_is_valid() {
             Some(possible_entry)
         } else {
+            println!("miss checksum: {}", possible_entry.checksum_is_valid());
             None
         }
     }
