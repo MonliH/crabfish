@@ -64,6 +64,7 @@ impl CacheItem {
 pub struct TTable {
     pub entries: *mut CacheItem,
     pub size: usize,
+    pub mask: usize,
 }
 
 // SAFTEY: We've accounted for the problems with two simultaneous writers via a checksum.
@@ -72,12 +73,16 @@ unsafe impl Sync for TTable {}
 
 impl TTable {
     pub fn new(size: usize) -> Self {
+        if size.count_ones() != 1 {
+            panic!("Size must be a power of two");
+        }
         let mut entries = vec![CacheItem::default(); size];
         entries.shrink_to_fit();
         let entries_ptr = entries.as_mut_ptr();
         std::mem::forget(entries);
         Self {
             size,
+            mask: size - 1,
             entries: entries_ptr,
         }
     }
@@ -88,7 +93,7 @@ impl TTable {
         // SAFTEY: We know the hash `&` the mask is always going to be in bounds.
         // We must clone the item because it might change otherwise.
         let possible_entry: CacheItem =
-            unsafe { (&*entries).get((hash as usize) % self.size).unwrap() }.clone();
+            unsafe { (&*entries).get((hash as usize) & self.mask).unwrap() }.clone();
 
         if possible_entry.board_hash == hash && possible_entry.checksum_is_valid() {
             Some(possible_entry)
@@ -103,7 +108,7 @@ impl TTable {
 
         let possible_entry: &mut CacheItem = unsafe {
             (&mut *entries)
-                .get_mut((item.board_hash as usize) % self.size)
+                .get_mut((item.board_hash as usize) & self.mask)
                 .unwrap()
         };
 
