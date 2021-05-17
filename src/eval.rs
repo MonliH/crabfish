@@ -57,7 +57,7 @@ fn pairs(board: Board, color: Color) -> ScoreTy {
         + count_piece(board, Piece::Rook, color) % 2 * ROOK_PAIR
 }
 
-const MOBILITY_WT: ScoreTy = 3;
+const MOBILITY_WT: ScoreTy = 1;
 
 #[inline(always)]
 #[allow(deprecated)]

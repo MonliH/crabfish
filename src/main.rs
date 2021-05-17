@@ -87,7 +87,7 @@ fn main() {
                                 Board::from_str(&fen).expect("Invalid FEN")
                             } else if mode == "startpos" {
                                 // eat moves
-                                items.next().unwrap();
+                                items.next();
                                 Board::default()
                             } else {
                                 Board::default()
