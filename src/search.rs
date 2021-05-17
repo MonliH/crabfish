@@ -1,3 +1,5 @@
+use std::sync::atomic::Ordering;
+
 use chess::{Board, CacheTable, ChessMove, MoveGen};
 use smallvec::{smallvec, SmallVec};
 
@@ -7,6 +9,7 @@ use crate::{
     move_sort::{sort_moves, sort_qs},
     score::ScoreTy,
     transposition::{CacheItem, Flag},
+    TIME_UP,
 };
 
 const R: u8 = 2;
@@ -17,6 +20,7 @@ pub struct Engine {
     memo: CacheTable<CacheItem>,
     killer_moves: SmallVec<[[Option<ChessMove>; KILLER_MOVES]; DEPTH]>,
     nodes_searched: usize,
+    cached_timeup: bool,
 }
 
 impl Engine {
@@ -25,6 +29,7 @@ impl Engine {
             memo: CacheTable::new(size, CacheItem::default()),
             nodes_searched: 0,
             killer_moves: smallvec![[None; KILLER_MOVES]; DEPTH],
+            cached_timeup: TIME_UP.load(Ordering::SeqCst),
         }
     }
 
@@ -78,6 +83,13 @@ impl Engine {
         pv: Option<ChessMove>,
         can_null: bool,
     ) -> ScoreTy {
+        if !self.cached_timeup && ((self.nodes_searched & 4095) == 0) {
+            self.cached_timeup = TIME_UP.load(Ordering::SeqCst);
+        }
+        if self.cached_timeup {
+            return 0;
+        }
+
         let orig_alpha = alpha;
         let ply = (start_depth - depth) as usize;
 
@@ -234,12 +246,18 @@ impl Engine {
 
         // Iterative Deepening
         for depth in 1..(max_depth + 1) {
+            if !self.cached_timeup {
+                self.cached_timeup = TIME_UP.load(Ordering::SeqCst);
+            }
+            if self.cached_timeup {
+                break;
+            }
             let pvs_res = self.pvs_root(depth, board, best_move.map(|(a, _)| a));
-            if let Some((new_bm, new_analysis)) = pvs_res {
+            if let Some((_, new_analysis)) = pvs_res {
                 best_move = pvs_res;
-                eprintln!(
-                    "Nodes Searched: {}; Depth {}; Best move: {}; Analysis: {};",
-                    self.nodes_searched, depth, new_bm, new_analysis
+                println!(
+                    "info depth {} nodes {} score cp {}",
+                    depth, self.nodes_searched, new_analysis
                 );
             }
             self.nodes_searched = 0;
