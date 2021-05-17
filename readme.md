@@ -13,7 +13,7 @@ cargo install crabfish
 ```
 git clone https://github.com/MonliH/crabfish.git
 cd crabfish
-RUSTFLAGS="-C target-cpu=native" cargo run --release
+cargo run --release
 ```
 
 Note: the `--release` flag when building is **VERY IMPORTANT**.

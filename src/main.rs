@@ -4,19 +4,17 @@ mod helpers;
 mod move_sort;
 mod score;
 mod search;
-mod thread_launcher;
 mod transposition;
 
 use clap::Clap;
 
 use chess::Board;
 use helpers::game_over;
-use thread_launcher::ThreadLauncher;
 
 use std::io::BufRead;
 use std::{io, str::FromStr};
 
-fn eval_from_fen(engine: &mut ThreadLauncher, depth: u8, fen: &str) -> bool {
+fn eval_from_fen(engine: &mut search::Engine, depth: u8, fen: &str) -> bool {
     let board = Board::from_str(&fen).expect("Invalid FEN position");
     if game_over(board) {
         return true;
@@ -32,13 +30,13 @@ fn main() {
     match opts.subcmd {
         flags::SubCommand::Uci => todo!(),
         flags::SubCommand::Move(conf) => {
-            let mut thread_launcher = ThreadLauncher::new(conf.memo, conf.jobs);
+            let mut engine = search::Engine::new(conf.memo.unwrap_or(33554432));
 
             if conf.interactive {
                 loop {
                     if let Some(line) = io::stdin().lock().lines().next() {
                         let fen = line.expect("Failed to read from stdin");
-                        let game_over = eval_from_fen(&mut thread_launcher, conf.depth, &fen);
+                        let game_over = eval_from_fen(&mut engine, conf.depth.unwrap_or(9), &fen);
                         if game_over {
                             break;
                         }
@@ -58,9 +56,8 @@ fn main() {
                         .expect("Failed to read from stdin")
                 };
 
-                eval_from_fen(&mut thread_launcher, conf.depth, &fen);
+                eval_from_fen(&mut engine, conf.depth.unwrap_or(9), &fen);
             }
-            thread_launcher.memo.free();
         }
     }
 }

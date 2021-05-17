@@ -32,22 +32,13 @@ pub struct Move {
     #[clap(short, long, about = "Interactive mode", conflicts_with = "fen")]
     pub interactive: bool,
 
-    #[clap(short, long, about = "Max depth of search", default_value = "9")]
-    pub depth: u8,
+    #[clap(short, long, about = "Max depth of search")]
+    pub depth: Option<u8>,
 
     #[clap(
         short,
         long,
-        about = "Size of the transposition table. Must be power of 2",
-        default_value = "33554432"
+        about = "Size of the transposition table. Must be power of 2"
     )]
-    pub memo: usize,
-
-    #[clap(
-        short,
-        long,
-        about = "Number of parallel workers.",
-        default_value = "1"
-    )]
-    pub jobs: usize,
+    pub memo: Option<usize>,
 }
