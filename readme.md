@@ -3,6 +3,10 @@
 Crabfish is a **chess engine** written from scratch, in rust. 
 It can provide a **strong next move** for the current player, or an **evaluation of a board position**.
 
+I've been working on this engine for fun. It's playing strength, based on my tests, 
+is around 2000 elo (in the chess.com pool). 
+Based on what I've seen, it's tactical play is quite good but it's positional play sucks.
+
 ## Install
 ```bash
 cargo install crabfish
