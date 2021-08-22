@@ -1,3 +1,4 @@
+mod cache_table;
 mod eval;
 mod flags;
 mod helpers;
@@ -6,17 +7,16 @@ mod score;
 mod search;
 mod transposition;
 
+use chess_move_gen::Board;
 use clap::Clap;
 
-use chess::{Board, ChessMove};
-use helpers::game_over;
+use helpers::{from_san, game_over};
 
 use std::{
     io,
     io::BufRead,
     mem,
     process::exit,
-    str::FromStr,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex,
@@ -38,7 +38,7 @@ pub struct UciConfig {
 }
 
 fn eval_from_fen(engine: &mut search::Engine, depth: u8, fen: &str) -> bool {
-    let board = Board::from_str(&fen).expect("Invalid FEN position");
+    let board = Board::new(&fen);
     if game_over(board) {
         return true;
     }
@@ -48,14 +48,16 @@ fn eval_from_fen(engine: &mut search::Engine, depth: u8, fen: &str) -> bool {
     false
 }
 
+const STARTING_BOARD: &'static str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+
 fn main() {
     let conf = flags::App::parse();
 
     match conf.subcmd {
         flags::SubCommand::Uci => {
-            let mut internal_board = Board::default();
+            let mut internal_board = Board::new(STARTING_BOARD);
             let engine = Arc::new(Mutex::new(search::Engine::new(33554432)));
-            // SAFTEY: This is static because we never use the static reference in a way where the
+            // SAFTEY: This is safe because we never use the static reference in a way where the
             // value behind it would be dropped before other threads use it.
             let eng: &'static Arc<Mutex<search::Engine>> = unsafe { mem::transmute(&engine) };
             let mut joins = Vec::new();
@@ -84,19 +86,17 @@ fn main() {
                                     fen.push_str(s);
                                     next = items.next();
                                 }
-                                Board::from_str(&fen).expect("Invalid FEN")
+                                Board::new(&fen)
                             } else if mode == "startpos" {
                                 // eat moves
                                 items.next();
-                                Board::default()
+                                Board::new(STARTING_BOARD)
                             } else {
-                                Board::default()
+                                Board::new(STARTING_BOARD)
                             };
 
                             for cmove in items {
-                                board = board.make_move_new(
-                                    ChessMove::from_str(cmove).expect("invalid move"),
-                                );
+                                board.make(from_san(&board, cmove));
                             }
 
                             internal_board = board;
@@ -118,12 +118,10 @@ fn main() {
                                         config.btime = items.next().unwrap().parse().unwrap();
                                     }
                                     "depth" => {
-                                        config.depth =
-                                            Some(items.next().unwrap().parse().unwrap());
+                                        config.depth = Some(items.next().unwrap().parse().unwrap());
                                     }
                                     "nodes" => {
-                                        config.nodes =
-                                            Some(items.next().unwrap().parse().unwrap());
+                                        config.nodes = Some(items.next().unwrap().parse().unwrap());
                                     }
                                     "movetime" => {
                                         config.movetime =

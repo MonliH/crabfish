@@ -1,4 +1,3 @@
-use chess::{Board, ChessMove};
 use std::cmp::Reverse;
 
 use crate::{eval::get_score, score::ScoreTy, search::KILLER_MOVES};

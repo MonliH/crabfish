@@ -5,7 +5,7 @@ authors = ["Jonathan Li <30177086+MonliH@users.noreply.github.com>"]
 edition = "2018"
 
 [dependencies]
-chess = "3"
+chess-move-gen = { git = "https://github.com/Nereuxofficial/rust_move_gen", branch = "master" }
 smallvec = "1"
 clap = "3.0.0-beta.2"
 

@@ -1,6 +1,5 @@
 use std::sync::atomic::Ordering;
 
-use chess::{Board, CacheTable, ChessMove, MoveGen};
 use smallvec::{smallvec, SmallVec};
 
 use crate::{
