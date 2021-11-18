@@ -5,6 +5,8 @@ authors = ["Jonathan Li <30177086+MonliH@users.noreply.github.com>"]
 edition = "2018"
 description = "A simple chess engine"
 license = "MIT"
+readme = "readme.md"
+repository = "https://github.com/MonliH/crabfish"
 
 [dependencies]
 chess = "3"
