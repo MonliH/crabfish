@@ -1,6 +1,6 @@
 [package]
 name = "crabfish"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Jonathan Li <30177086+MonliH@users.noreply.github.com>"]
 edition = "2018"
 description = "A simple chess engine"
