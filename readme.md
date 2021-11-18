@@ -1,5 +1,7 @@
 # crabfish 🦀♟️
 
+[![Crates.io](https://img.shields.io/crates/v/crabfish)](https://crates.io/crates/crabfish)
+
 Crabfish is a **chess engine** written from scratch, in rust. 
 It can provide a **strong next move** for the current player, or an **evaluation of a board position**.
 
