@@ -3,6 +3,8 @@ name = "crabfish"
 version = "0.1.0"
 authors = ["Jonathan Li <30177086+MonliH@users.noreply.github.com>"]
 edition = "2018"
+description = "A simple chess engine"
+license = "MIT"
 
 [dependencies]
 chess = "3"
