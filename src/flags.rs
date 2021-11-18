@@ -1,16 +1,15 @@
-use clap::{AppSettings, Clap};
+use clap::Parser;
 
 const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 
-#[derive(Clap)]
+#[derive(Parser)]
 #[clap(version = VERSION, about = "The crabfish chess engine.")]
-#[clap(setting = AppSettings::ColoredHelp)]
 pub struct App {
     #[clap(subcommand)]
     pub subcmd: SubCommand,
 }
 
-#[derive(Clap)]
+#[derive(Parser)]
 pub enum SubCommand {
     #[clap(about = "Play the best move")]
     Move(Move),
@@ -19,7 +18,7 @@ pub enum SubCommand {
     Uci,
 }
 
-#[derive(Clap)]
+#[derive(Parser)]
 pub struct Move {
     #[clap(
         short,

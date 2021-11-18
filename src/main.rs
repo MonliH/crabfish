@@ -6,8 +6,7 @@ mod score;
 mod search;
 mod transposition;
 
-use clap::Clap;
-
+use clap::Parser;
 use chess::{Board, ChessMove};
 use helpers::game_over;
 

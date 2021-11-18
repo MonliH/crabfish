@@ -11,7 +11,7 @@ repository = "https://github.com/MonliH/crabfish"
 [dependencies]
 chess = "3"
 smallvec = "1"
-clap = "3.0.0-beta.2"
+clap = "=3.0.0-beta.5"
 
 [profile.release]
 lto = "fat"
