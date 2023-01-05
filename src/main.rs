@@ -67,6 +67,7 @@ fn main() {
                         "uci" => {
                             println!("id name Crabfish {}", env!("CARGO_PKG_VERSION"));
                             println!("id author Jonathan Li");
+                            println!("uciok");
                         }
                         "isready" => {
                             println!("readyok");
